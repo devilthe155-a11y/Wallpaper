@@ -1,0 +1,1318 @@
+name: Build Redmi X-Ray APK
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Write the app source
+        run: |
+          mkdir -p "app"
+          cat > "app/build.gradle" <<'XRAYEOF'
+          plugins {
+              id 'com.android.application'
+          }
+
+          android {
+              namespace 'com.arpan.xraywallpaper'
+              compileSdk 34
+
+              defaultConfig {
+                  applicationId 'com.arpan.xraywallpaper'
+                  minSdk 24
+                  targetSdk 34
+                  versionCode 1
+                  versionName '1.0'
+              }
+
+              buildTypes {
+                  release {
+                      minifyEnabled false
+                  }
+              }
+
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
+              }
+          }
+          XRAYEOF
+          mkdir -p "app/src/main"
+          cat > "app/src/main/AndroidManifest.xml" <<'XRAYEOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+              <uses-feature
+                  android:name="android.software.live_wallpaper"
+                  android:required="true" />
+              <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+              <application
+                  android:allowBackup="false"
+                  android:label="@string/app_name"
+                  android:theme="@android:style/Theme.DeviceDefault">
+
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+
+                  <service
+                      android:name=".XrayWallpaperService"
+                      android:exported="true"
+                      android:label="@string/app_name"
+                      android:permission="android.permission.BIND_WALLPAPER">
+                      <intent-filter>
+                          <action android:name="android.service.wallpaper.WallpaperService" />
+                      </intent-filter>
+                      <meta-data
+                          android:name="android.service.wallpaper"
+                          android:resource="@xml/wallpaper" />
+                  </service>
+              </application>
+          </manifest>
+          XRAYEOF
+          mkdir -p "app/src/main/java/com/arpan/xraywallpaper"
+          cat > "app/src/main/java/com/arpan/xraywallpaper/MainActivity.java" <<'XRAYEOF'
+          package com.arpan.xraywallpaper;
+
+          import android.app.Activity;
+          import android.app.WallpaperManager;
+          import android.content.ComponentName;
+          import android.content.Intent;
+          import android.graphics.Typeface;
+          import android.os.Bundle;
+          import android.view.View;
+          import android.widget.Button;
+          import android.widget.LinearLayout;
+          import android.widget.ScrollView;
+          import android.widget.TextView;
+
+          public class MainActivity extends Activity {
+
+              @Override
+              protected void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+
+                  Telemetry t = new Telemetry();
+                  t.update(this);
+
+                  float d = getResources().getDisplayMetrics().density;
+                  int pad = (int) (22 * d);
+
+                  ScrollView scroll = new ScrollView(this);
+                  scroll.setBackgroundColor(0xFF03090D);
+                  LinearLayout box = new LinearLayout(this);
+                  box.setOrientation(LinearLayout.VERTICAL);
+                  box.setPadding(pad, pad * 2, pad, pad);
+                  scroll.addView(box);
+
+                  TextView title = new TextView(this);
+                  title.setText("REDMI X-RAY");
+                  title.setTextColor(0xFFA8E6FF);
+                  title.setTextSize(28f);
+                  title.setTypeface(Typeface.DEFAULT_BOLD);
+                  box.addView(title);
+
+                  TextView intro = new TextView(this);
+                  intro.setText("A live wallpaper that shows your phone as a transparent X-ray: the chip, memory, storage, battery, cameras, speaker and more. "
+                          + "It tilts with your phone, turns when you swipe between home screens, and reads your phone's real sensors.");
+                  intro.setTextColor(0xFFEAF8FF);
+                  intro.setTextSize(15f);
+                  intro.setPadding(0, pad / 2, 0, pad);
+                  box.addView(intro);
+
+                  Button set = new Button(this);
+                  set.setText("Set as live wallpaper");
+                  set.setOnClickListener(new View.OnClickListener() {
+                      @Override
+                      public void onClick(View v) {
+                          openPicker();
+                      }
+                  });
+                  box.addView(set);
+
+                  TextView head = new TextView(this);
+                  head.setText("What this phone lets the wallpaper read");
+                  head.setTextColor(0xFFFFB347);
+                  head.setTextSize(13f);
+                  head.setPadding(0, pad, 0, pad / 3);
+                  box.addView(head);
+
+                  TextView diag = new TextView(this);
+                  diag.setText(t.diagnostics());
+                  diag.setTextColor(0xFFEAF8FF);
+                  diag.setTextSize(13f);
+                  diag.setTypeface(Typeface.MONOSPACE);
+                  box.addView(diag);
+
+                  TextView note = new TextView(this);
+                  note.setText("Anything marked locked by Android is blocked for all apps on this phone, so the wallpaper says so instead of guessing. "
+                          + "Part positions follow the closest published teardown, the Redmi 9A, and are approximate.");
+                  note.setTextColor(0xFF5FB3D4);
+                  note.setTextSize(12f);
+                  note.setPadding(0, pad, 0, 0);
+                  box.addView(note);
+
+                  setContentView(scroll);
+              }
+
+              private void openPicker() {
+                  try {
+                      Intent i = new Intent(WallpaperManager.ACTION_CHANGE_LIVE_WALLPAPER);
+                      i.putExtra(WallpaperManager.EXTRA_LIVE_WALLPAPER_COMPONENT,
+                              new ComponentName(this, XrayWallpaperService.class));
+                      startActivity(i);
+                  } catch (Exception e) {
+                      try {
+                          startActivity(new Intent(WallpaperManager.ACTION_LIVE_WALLPAPER_CHOOSER));
+                      } catch (Exception ignored) {
+                      }
+                  }
+              }
+          }
+          XRAYEOF
+          mkdir -p "app/src/main/java/com/arpan/xraywallpaper"
+          cat > "app/src/main/java/com/arpan/xraywallpaper/Scene.java" <<'XRAYEOF'
+          package com.arpan.xraywallpaper;
+
+          import android.graphics.Canvas;
+          import android.graphics.LinearGradient;
+          import android.graphics.Paint;
+          import android.graphics.Path;
+          import android.graphics.RadialGradient;
+          import android.graphics.RectF;
+          import android.graphics.Shader;
+          import android.graphics.Typeface;
+          import android.os.SystemClock;
+
+          import java.util.ArrayList;
+          import java.util.Arrays;
+          import java.util.Locale;
+
+          /** The X-ray: a wireframe Redmi 9 Activ drawn with plain 2D canvas maths. Model units are millimetres. */
+          final class Scene {
+              static final int CY = 0xFFA8E6FF;
+              static final int DIM = 0xFF4AA7C8;
+              static final int GR = 0xFF6BF2A3;
+              static final int AM = 0xFFFFB347;
+              static final int RD = 0xFFFF5A4A;
+              static final int PAPER = 0xFFEAF8FF;
+
+              static final String[] ORDER = {"soc", "ram", "storage", "battery", "display", "cam13", "wcn", "accel", "spk", "usb"};
+
+              static final class Part {
+                  final String id;
+                  final String name;
+                  final int color;
+                  float[] s = new float[96];
+                  int n;
+                  float cx;
+                  float cy;
+                  float cz;
+                  boolean focus;
+
+                  Part(String id, String name, int color) {
+                      this.id = id;
+                      this.name = name;
+                      this.color = color;
+                  }
+
+                  void seg(float x1, float y1, float z1, float x2, float y2, float z2) {
+                      if (n + 6 > s.length) {
+                          s = Arrays.copyOf(s, s.length * 2);
+                      }
+                      s[n++] = x1;
+                      s[n++] = y1;
+                      s[n++] = z1;
+                      s[n++] = x2;
+                      s[n++] = y2;
+                      s[n++] = z2;
+                  }
+              }
+
+              private final ArrayList<Part> parts = new ArrayList<>();
+
+              /* camera and view state */
+              private float rx = -0.2f;
+              private float ry = 0.5f;
+              float tiltX;
+              float tiltY;
+              private float dragX;
+              private float dragY;
+              private float page = 0.5f;
+
+              private String selected = ORDER[0];
+              private long nextCycle;
+              private int cycleIdx;
+
+              /* layout */
+              private int lw;
+              private int lh;
+              private float ox;
+              private float oy;
+              private float k;
+              private static final float D = 520f;
+              private final float[] pr = new float[3];
+              private float[] buf = new float[512];
+
+              private final Paint line = new Paint(Paint.ANTI_ALIAS_FLAG);
+              private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
+              private final Paint text = new Paint(Paint.ANTI_ALIAS_FLAG);
+              private final Paint bg = new Paint();
+              private final Paint scanPaint = new Paint();
+              private final Path path = new Path();
+              private final RectF rect = new RectF();
+              private float scanH;
+
+              private static final float[][] TRACES = {
+                      {3f, 52f, 9f, 52f},
+                      {-11f, 52f, -16.8f, 52f},
+                      {-4f, 45f, -4f, 38f},
+                      {3f, 46f, 10f, 46f, 10f, 38f}
+              };
+
+              Scene() {
+                  text.setTypeface(Typeface.MONOSPACE);
+                  line.setStyle(Paint.Style.STROKE);
+                  line.setStrokeCap(Paint.Cap.ROUND);
+                  fill.setStyle(Paint.Style.FILL);
+
+                  /* body */
+                  box("frame", "Frame", DIM, 0, 0, 0, 77.1f, 164.9f, 9f);
+                  box("display", "Display", DIM, 0, 0, 3.9f, 75.4f, 161.6f, 0.4f);
+                  ring("display", "Display", DIM, 0, 76.4f, 4.1f, 4.8f, 20);
+                  ring("display", "Display", DIM, 0, 76.4f, 4.1f, 2.2f, 14);
+                  box("earpiece", "Earpiece", DIM, 0, 81.4f, 3.9f, 12f, 1.2f, 0.8f);
+
+                  /* mainboard and chips (positions follow the closest published teardown, approximate) */
+                  box("board", "Mainboard", DIM, 0, 50f, -0.6f, 74f, 60f, 0.8f);
+                  box("board", "Mainboard", DIM, 33f, 1.5f, -0.6f, 8f, 37f, 0.8f);
+                  box("soc", "Helio G35 chip", CY, -4f, 52f, 1.3f, 14f, 14f, 1.4f);
+                  box("ram", "RAM", CY, 15f, 52f, 1.2f, 12f, 14f, 1.2f);
+                  box("storage", "Storage (eMMC)", CY, -22.5f, 52f, 1.2f, 11.5f, 13f, 1.2f);
+                  box("pmic", "Power chip", CY, -4f, 34f, 1.1f, 8f, 8f, 1.1f);
+                  box("rf", "Radio chip", CY, -24f, 34f, 1.0f, 10f, 8f, 1.0f);
+                  box("rf", "Radio chip", CY, -31f, 26f, 0.9f, 5f, 4f, 0.9f);
+                  box("wcn", "Wi-Fi / Bluetooth / GPS", CY, 14f, 34f, 1.0f, 8f, 8f, 1.0f);
+                  box("accel", "Accelerometer", AM, 26f, 28f, 0.9f, 3f, 3f, 0.9f);
+                  box("sim", "SIM and microSD tray", DIM, -34.5f, 66f, 0.4f, 4.5f, 24f, 2.2f);
+                  box("jack", "Headphone jack", CY, 22f, 76.5f, 0.4f, 6.2f, 6.6f, 4.2f);
+                  box("conn", "Connectors", CY, 12f, 23f, 1.1f, 14f, 3f, 1.1f);
+                  box("conn", "Connectors", GR, -8f, 23f, 1.1f, 7f, 3f, 1.1f);
+                  rect("shield", "Shield can", DIM, -3f, 41f, 1.8f, 58f, 36f);
+
+                  /* battery and sub-board */
+                  box("battery", "Battery", GR, 0, -25f, -0.8f, 66f, 80f, 3.2f);
+                  for (int i = 1; i < 6; i++) {
+                      float y = -65f + 80f * i / 6f;
+                      line("battery", "Battery", GR, -32f, y, 0.8f, 32f, y, 0.8f);
+                  }
+                  box("sub", "Sub-board", DIM, 0, -74.5f, -1f, 72f, 11f, 0.8f);
+                  box("usb", "Micro-USB port", CY, 0, -79.2f, 1.2f, 9f, 3.4f, 3.2f);
+                  box("mic", "Microphone", CY, -14f, -77.6f, 1f, 3.4f, 3.4f, 1.2f);
+                  box("spk", "Loudspeaker", CY, 17f, -73.5f, 1.8f, 24f, 10.5f, 4f);
+                  ring("spk", "Loudspeaker", CY, 17f, -73.5f, 3.9f, 3.6f, 20);
+                  cyl("vib", "Vibration motor", CY, -25f, -73.2f, 1.4f, 3.6f, 2.6f, 18);
+                  box("ant", "Antenna unit", AM, -32f, -75f, 0.9f, 6f, 8f, 1.2f);
+                  line("ant", "Antennas", AM, -33f, 80.9f, 0f, -8f, 80.9f, 0f);
+                  line("ant", "Antennas", AM, 9f, 80.9f, 0f, 33f, 80.9f, 0f);
+                  line("ant", "Antennas", AM, -33f, -81.1f, 0f, -12f, -81.1f, 0f);
+                  line("coax", "Coaxial cable", AM, -35.4f, 19f, 0.9f, -35.4f, -70f, 0.9f);
+
+                  /* back of the board: cameras, flash, fingerprint */
+                  cyl("cam13", "Cameras", CY, -20f, 68f, -3.2f, 5.6f, 2.4f, 28);
+                  ring("cam13", "Cameras", AM, -20f, 68f, -4.5f, 3.2f, 20);
+                  cyl("cam2", "Depth sensor", CY, -20f, 56f, -3.2f, 3f, 2f, 18);
+                  cyl("flash", "Flash", AM, -9f, 62f, -3.4f, 1.7f, 1.2f, 12);
+                  ring("fp", "Fingerprint sensor", CY, 0f, 40f, -4.6f, 6.6f, 32);
+                  ring("fp", "Fingerprint sensor", CY, 0f, 40f, -4.6f, 4.2f, 24);
+                  ring("fp", "Fingerprint sensor", CY, 0f, 40f, -4.6f, 1.8f, 16);
+
+                  /* side buttons and screws */
+                  box("btn", "Buttons", CY, 38.7f, 62f, 0f, 1.6f, 17f, 2.4f);
+                  box("btn", "Buttons", CY, 38.7f, 41f, 0f, 1.6f, 9f, 2.4f);
+                  float[][] sc = {{-34, 77}, {-17, 77}, {0, 77}, {17, 77}, {34, 77}, {-34, 50}, {34, 50}, {-34, 18}, {34, 18},
+                          {-34, -20}, {34, -20}, {-34, -45}, {34, -45}, {-34, -66}, {34, -66}, {-26, -79}, {26, -79}, {0, -66}, {0, 17}};
+                  for (float[] q : sc) {
+                      line("screws", "Screws", DIM, q[0] - 1f, q[1], 2.4f, q[0] + 1f, q[1], 2.4f);
+                      line("screws", "Screws", DIM, q[0], q[1] - 1f, 2.4f, q[0], q[1] + 1f, 2.4f);
+                  }
+
+                  for (String id : ORDER) {
+                      Part p = byId(id);
+                      if (p != null) {
+                          p.focus = true;
+                      }
+                  }
+              }
+
+              /* ---------- geometry helpers ---------- */
+
+              private Part part(String id, String name, int color) {
+                  for (Part p : parts) {
+                      if (p.id.equals(id)) {
+                          return p;
+                      }
+                  }
+                  Part p = new Part(id, name, color);
+                  parts.add(p);
+                  return p;
+              }
+
+              private Part byId(String id) {
+                  for (Part p : parts) {
+                      if (p.id.equals(id)) {
+                          return p;
+                      }
+                  }
+                  return null;
+              }
+
+              private void box(String id, String name, int col, float cx, float cy, float cz, float w, float h, float d) {
+                  Part p = part(id, name, col);
+                  if (p.n == 0) {
+                      p.cx = cx;
+                      p.cy = cy;
+                      p.cz = cz;
+                  }
+                  float x0 = cx - w / 2, x1 = cx + w / 2, y0 = cy - h / 2, y1 = cy + h / 2, z0 = cz - d / 2, z1 = cz + d / 2;
+                  p.seg(x0, y0, z0, x1, y0, z0);
+                  p.seg(x1, y0, z0, x1, y1, z0);
+                  p.seg(x1, y1, z0, x0, y1, z0);
+                  p.seg(x0, y1, z0, x0, y0, z0);
+                  p.seg(x0, y0, z1, x1, y0, z1);
+                  p.seg(x1, y0, z1, x1, y1, z1);
+                  p.seg(x1, y1, z1, x0, y1, z1);
+                  p.seg(x0, y1, z1, x0, y0, z1);
+                  p.seg(x0, y0, z0, x0, y0, z1);
+                  p.seg(x1, y0, z0, x1, y0, z1);
+                  p.seg(x1, y1, z0, x1, y1, z1);
+                  p.seg(x0, y1, z0, x0, y1, z1);
+              }
+
+              private void rect(String id, String name, int col, float cx, float cy, float z, float w, float h) {
+                  Part p = part(id, name, col);
+                  if (p.n == 0) {
+                      p.cx = cx;
+                      p.cy = cy;
+                      p.cz = z;
+                  }
+                  float x0 = cx - w / 2, x1 = cx + w / 2, y0 = cy - h / 2, y1 = cy + h / 2;
+                  p.seg(x0, y0, z, x1, y0, z);
+                  p.seg(x1, y0, z, x1, y1, z);
+                  p.seg(x1, y1, z, x0, y1, z);
+                  p.seg(x0, y1, z, x0, y0, z);
+              }
+
+              private void ring(String id, String name, int col, float cx, float cy, float z, float r, int n) {
+                  Part p = part(id, name, col);
+                  if (p.n == 0) {
+                      p.cx = cx;
+                      p.cy = cy;
+                      p.cz = z;
+                  }
+                  for (int i = 0; i < n; i++) {
+                      double a0 = 2 * Math.PI * i / n;
+                      double a1 = 2 * Math.PI * (i + 1) / n;
+                      p.seg(cx + (float) (r * Math.cos(a0)), cy + (float) (r * Math.sin(a0)), z,
+                              cx + (float) (r * Math.cos(a1)), cy + (float) (r * Math.sin(a1)), z);
+                  }
+              }
+
+              private void cyl(String id, String name, int col, float cx, float cy, float cz, float r, float d, int n) {
+                  ring(id, name, col, cx, cy, cz + d / 2, r, n);
+                  ring(id, name, col, cx, cy, cz - d / 2, r, n);
+                  Part p = part(id, name, col);
+                  for (int i = 0; i < 4; i++) {
+                      double a = Math.PI / 2 * i;
+                      float x = cx + (float) (r * Math.cos(a));
+                      float y = cy + (float) (r * Math.sin(a));
+                      p.seg(x, y, cz - d / 2, x, y, cz + d / 2);
+                  }
+              }
+
+              private void line(String id, String name, int col, float x1, float y1, float z1, float x2, float y2, float z2) {
+                  Part p = part(id, name, col);
+                  if (p.n == 0) {
+                      p.cx = (x1 + x2) / 2;
+                      p.cy = (y1 + y2) / 2;
+                      p.cz = (z1 + z2) / 2;
+                  }
+                  p.seg(x1, y1, z1, x2, y2, z2);
+              }
+
+              /* ---------- input ---------- */
+
+              void drag(float dxPx, float dyPx) {
+                  dragY += dxPx * 0.006f;
+                  dragX += dyPx * 0.004f;
+                  dragY = clamp(dragY, -1.4f, 1.4f);
+                  dragX = clamp(dragX, -0.8f, 0.8f);
+              }
+
+              void setPage(float p) {
+                  page = clamp(p, 0f, 1f);
+              }
+
+              void tap(float x, float y) {
+                  String id = hit(x, y);
+                  if (id != null) {
+                      selected = id;
+                      nextCycle = SystemClock.uptimeMillis() + 12000;
+                  }
+              }
+
+              private String hit(float x, float y) {
+                  String best = null;
+                  float bestD = lw * 0.14f;
+                  for (Part p : parts) {
+                      if (!p.focus) {
+                          continue;
+                      }
+                      project(p.cx, p.cy, p.cz, pr);
+                      float d = (float) Math.hypot(pr[0] - x, pr[1] - y);
+                      if (d < bestD) {
+                          bestD = d;
+                          best = p.id;
+                      }
+                  }
+                  return best;
+              }
+
+              /* ---------- maths ---------- */
+
+              private static float clamp(float v, float a, float b) {
+                  return Math.max(a, Math.min(b, v));
+              }
+
+              private void project(float x, float y, float z, float[] out) {
+                  float cyaw = (float) Math.cos(ry), syaw = (float) Math.sin(ry);
+                  float cp = (float) Math.cos(rx), sp = (float) Math.sin(rx);
+                  float x1 = x * cyaw + z * syaw;
+                  float z1 = -x * syaw + z * cyaw;
+                  float y2 = y * cp - z1 * sp;
+                  float z2 = y * sp + z1 * cp;
+                  float s = D / (D - z2);
+                  out[0] = ox + x1 * s * k;
+                  out[1] = oy - y2 * s * k;
+                  out[2] = z2;
+              }
+
+              private static int lerpColor(int a, int b, float t) {
+                  t = clamp(t, 0f, 1f);
+                  int r = (int) (((a >> 16) & 255) * (1 - t) + ((b >> 16) & 255) * t);
+                  int g = (int) (((a >> 8) & 255) * (1 - t) + ((b >> 8) & 255) * t);
+                  int bl = (int) ((a & 255) * (1 - t) + (b & 255) * t);
+                  return 0xFF000000 | (r << 16) | (g << 8) | bl;
+              }
+
+              private void layout(int w, int h) {
+                  lw = w;
+                  lh = h;
+                  ox = w / 2f;
+                  oy = h * 0.40f;
+                  k = h * 0.54f / 165f;
+                  bg.setShader(new RadialGradient(w / 2f, h * 0.40f, h * 0.75f, 0xFF0A2431, 0xFF03090D, Shader.TileMode.CLAMP));
+                  scanH = h * 0.05f;
+                  scanPaint.setShader(new LinearGradient(0, 0, 0, scanH, 0x00A8E6FF, 0x38A8E6FF, Shader.TileMode.CLAMP));
+              }
+
+              /* ---------- drawing ---------- */
+
+              void render(Canvas c, int w, int h, long now, Telemetry t) {
+                  if (w != lw || h != lh) {
+                      layout(w, h);
+                  }
+
+                  float sway = (float) Math.sin(now * 0.0004) * 0.10f;
+                  float tRy = clamp(0.5f + (page - 0.5f) * 1.2f + tiltY + dragY + sway, -1.7f, 1.7f);
+                  float tRx = clamp(-0.2f + tiltX + dragX, -1.1f, 1.1f);
+                  ry += (tRy - ry) * 0.15f;
+                  rx += (tRx - rx) * 0.15f;
+                  dragX *= 0.985f;
+                  dragY *= 0.985f;
+
+                  if (nextCycle == 0) {
+                      nextCycle = now + 5500;
+                  }
+                  if (now > nextCycle) {
+                      cycleIdx = (cycleIdx + 1) % ORDER.length;
+                      selected = ORDER[cycleIdx];
+                      nextCycle = now + 5500;
+                  }
+
+                  c.drawRect(0, 0, w, h, bg);
+
+                  float scanY = ((now * 0.00012f) % 1f) * (h * 0.9f);
+                  c.save();
+                  c.translate(0, scanY);
+                  c.drawRect(0, 0, w, scanH, scanPaint);
+                  c.restore();
+
+                  float sw = Math.max(1.3f, w / 520f);
+                  float[] ratios = new float[Math.max(1, t.cores)];
+                  float avg = t.avgFreqRatio();
+                  for (int i = 0; i < ratios.length; i++) {
+                      ratios[i] = (t.freqOk && t.maxFreqKHz > 0 && i < t.freqKHz.length) ? t.freqKHz[i] / (float) t.maxFreqKHz : -1f;
+                  }
+
+                  drawBatteryFill(c, t);
+                  drawCores(c, t, ratios);
+
+                  for (Part p : parts) {
+                      int segs = p.n / 6;
+                      if (buf.length < segs * 4) {
+                          buf = new float[segs * 4];
+                      }
+                      for (int i = 0; i < segs; i++) {
+                          project(p.s[i * 6], p.s[i * 6 + 1], p.s[i * 6 + 2], pr);
+                          buf[i * 4] = pr[0];
+                          buf[i * 4 + 1] = pr[1];
+                          project(p.s[i * 6 + 3], p.s[i * 6 + 4], p.s[i * 6 + 5], pr);
+                          buf[i * 4 + 2] = pr[0];
+                          buf[i * 4 + 3] = pr[1];
+                      }
+                      project(p.cx, p.cy, p.cz, pr);
+                      float depth = clamp(0.55f + pr[2] / 260f, 0.3f, 1f);
+                      boolean sel = p.id.equals(selected);
+                      int col = tint(p, t);
+                      line.setColor(col);
+                      if (sel) {
+                          line.setStrokeWidth(sw * 4.5f);
+                          line.setAlpha(70);
+                          c.drawLines(buf, 0, segs * 4, line);
+                          line.setColor(col);
+                          line.setStrokeWidth(sw * 1.7f);
+                          line.setAlpha(255);
+                      } else {
+                          boolean dimmed = !selected.equals("") && !p.id.equals("frame");
+                          line.setStrokeWidth(sw);
+                          float base = p.id.equals("frame") || p.id.equals("display") ? 0.5f : 0.8f;
+                          line.setAlpha((int) (255 * depth * base * (dimmed ? 0.7f : 1f)));
+                      }
+                      c.drawLines(buf, 0, segs * 4, line);
+                  }
+
+                  drawPulses(c, now, avg);
+                  drawVibration(c, now);
+                  drawCard(c, w, h, t);
+              }
+
+              private int tint(Part p, Telemetry t) {
+                  float heat = Float.NaN;
+                  if (p.id.equals("soc") && !Float.isNaN(t.cpuTempC)) {
+                      heat = (t.cpuTempC - 35f) / 25f;
+                  } else if (p.id.equals("battery") && !Float.isNaN(t.batTempC)) {
+                      heat = (t.batTempC - 28f) / 17f;
+                  }
+                  if (Float.isNaN(heat) || heat <= 0f) {
+                      return p.color;
+                  }
+                  int c1 = lerpColor(p.color, AM, clamp(heat * 2f, 0f, 1f));
+                  return lerpColor(c1, RD, clamp(heat * 2f - 1f, 0f, 1f));
+              }
+
+              private void quad(Canvas c, float x0, float y0, float x1, float y1, float z, int color, int alpha) {
+                  path.reset();
+                  project(x0, y0, z, pr);
+                  path.moveTo(pr[0], pr[1]);
+                  project(x1, y0, z, pr);
+                  path.lineTo(pr[0], pr[1]);
+                  project(x1, y1, z, pr);
+                  path.lineTo(pr[0], pr[1]);
+                  project(x0, y1, z, pr);
+                  path.lineTo(pr[0], pr[1]);
+                  path.close();
+                  fill.setColor(color);
+                  fill.setAlpha(alpha);
+                  c.drawPath(path, fill);
+              }
+
+              private void drawBatteryFill(Canvas c, Telemetry t) {
+                  float lvl = t.batPct < 0 ? 0.5f : t.batPct / 100f;
+                  int col = lvl > 0.4f ? GR : (lvl > 0.2f ? AM : RD);
+                  boolean sel = selected.equals("battery");
+                  quad(c, -31f, -64f, 31f, -64f + 78f * lvl, 0.9f, col, sel ? 120 : 62);
+              }
+
+              private void drawCores(Canvas c, Telemetry t, float[] ratios) {
+                  int n = Math.min(8, ratios.length);
+                  for (int i = 0; i < n; i++) {
+                      int col = i % 4;
+                      int row = i / 4;
+                      float cx = -4f + (col - 1.5f) * 3.4f;
+                      float cy = 56f - row * 3.6f;
+                      int a = ratios[i] >= 0f ? (int) (45 + 190 * ratios[i]) : 40;
+                      quad(c, cx - 1.4f, cy - 1.4f, cx + 1.4f, cy + 1.4f, 2.1f, CY, a);
+                  }
+                  quad(c, -8f, 44.5f, 0f, 48.5f, 2.1f, CY, 45);
+              }
+
+              private void drawPulses(Canvas c, long now, float avg) {
+                  float sp = avg >= 0f ? 0.25f + 0.9f * avg : 0.4f;
+                  fill.setColor(CY);
+                  for (int ti = 0; ti < TRACES.length; ti++) {
+                      float[] tr = TRACES[ti];
+                      int pts = tr.length / 2;
+                      float total = 0f;
+                      for (int i = 1; i < pts; i++) {
+                          total += (float) Math.hypot(tr[i * 2] - tr[i * 2 - 2], tr[i * 2 + 1] - tr[i * 2 - 1]);
+                      }
+                      for (int d = 0; d < 3; d++) {
+                          float u = ((now * 0.0002f * sp) + d / 3f + ti * 0.17f) % 1f;
+                          float dist = u * total;
+                          for (int i = 1; i < pts; i++) {
+                              float seg = (float) Math.hypot(tr[i * 2] - tr[i * 2 - 2], tr[i * 2 + 1] - tr[i * 2 - 1]);
+                              if (dist <= seg || i == pts - 1) {
+                                  float f = seg > 0f ? clamp(dist / seg, 0f, 1f) : 0f;
+                                  float x = tr[i * 2 - 2] + (tr[i * 2] - tr[i * 2 - 2]) * f;
+                                  float y = tr[i * 2 - 1] + (tr[i * 2 + 1] - tr[i * 2 - 1]) * f;
+                                  project(x, y, 1.6f, pr);
+                                  fill.setAlpha(60);
+                                  c.drawCircle(pr[0], pr[1], lw / 150f, fill);
+                                  fill.setAlpha(230);
+                                  c.drawCircle(pr[0], pr[1], lw / 340f, fill);
+                                  break;
+                              }
+                              dist -= seg;
+                          }
+                      }
+                  }
+              }
+
+              private void drawVibration(Canvas c, long now) {
+                  float a = now * 0.004f;
+                  float x2 = -25f + 3.2f * (float) Math.cos(a);
+                  float y2 = -73.2f + 3.2f * (float) Math.sin(a);
+                  project(-25f, -73.2f, 2.7f, pr);
+                  float sx = pr[0], sy = pr[1];
+                  project(x2, y2, 2.7f, pr);
+                  line.setColor(AM);
+                  line.setAlpha(200);
+                  line.setStrokeWidth(Math.max(1.5f, lw / 400f));
+                  c.drawLine(sx, sy, pr[0], pr[1], line);
+              }
+
+              private void drawCard(Canvas c, int w, int h, Telemetry t) {
+                  Part sp = byId(selected);
+                  if (sp == null) {
+                      return;
+                  }
+                  String[] info = info(selected, t);
+                  float cw = w * 0.88f, ch = h * 0.118f, cx = (w - cw) / 2f, cy = h * 0.775f;
+
+                  project(sp.cx, sp.cy, sp.cz, pr);
+                  line.setColor(AM);
+                  line.setAlpha(170);
+                  line.setStrokeWidth(Math.max(1.2f, w / 560f));
+                  c.drawLine(pr[0], pr[1], cx + cw * 0.1f, cy, line);
+                  fill.setColor(AM);
+                  fill.setAlpha(255);
+                  c.drawCircle(pr[0], pr[1], w / 190f, fill);
+
+                  rect.set(cx, cy, cx + cw, cy + ch);
+                  fill.setColor(0xFF04101A);
+                  fill.setAlpha(215);
+                  c.drawRoundRect(rect, w / 40f, w / 40f, fill);
+                  line.setColor(CY);
+                  line.setAlpha(110);
+                  line.setStrokeWidth(Math.max(1f, w / 600f));
+                  c.drawRoundRect(rect, w / 40f, w / 40f, line);
+
+                  float pad = w * 0.04f;
+                  float y = cy + pad + w * 0.03f;
+                  text.setTypeface(Typeface.create(Typeface.MONOSPACE, Typeface.BOLD));
+                  text.setColor(AM);
+                  text.setTextSize(w * 0.038f);
+                  c.drawText(info[0], cx + pad, y, text);
+                  text.setTypeface(Typeface.MONOSPACE);
+                  text.setColor(PAPER);
+                  for (int i = 1; i < info.length; i++) {
+                      float size = w * 0.029f;
+                      text.setTextSize(size);
+                      float avail = cw - pad * 2f;
+                      float m = text.measureText(info[i]);
+                      if (m > avail) {
+                          text.setTextSize(size * avail / m);
+                      }
+                      y += w * 0.042f;
+                      c.drawText(info[i], cx + pad, y, text);
+                  }
+              }
+
+              /* ---------- what each part says: real readings first, spec sheet second ---------- */
+
+              static String[] info(String id, Telemetry t) {
+                  switch (id) {
+                      case "soc": {
+                          String chip = t.hardware.isEmpty() ? "not reported" : t.hardware;
+                          boolean match = chip.toLowerCase(Locale.US).contains("6765");
+                          String speed;
+                          if (t.freqOk) {
+                              float a = t.avgFreqRatio();
+                              speed = String.format(Locale.US, "Speed now %d%% of max (%d MHz max)", Math.round(a * 100), t.maxFreqKHz / 1000);
+                          } else {
+                              speed = "Core speed: locked by Android";
+                          }
+                          String temp = Float.isNaN(t.cpuTempC) ? "Chip temperature: locked by Android"
+                                  : String.format(Locale.US, "Chip temperature %.1f °C", t.cpuTempC);
+                          return new String[]{"Helio G35 chip, " + t.cores + " cores",
+                                  "Chip code " + chip + (match ? " (matches)" : ""), speed, temp};
+                      }
+                      case "ram": {
+                          long used = Math.max(0, t.ramTotal - t.ramFree);
+                          int pct = t.ramTotal > 0 ? Math.round(used * 100f / t.ramTotal) : 0;
+                          return new String[]{"RAM",
+                                  t.ramTotal > 0 ? Telemetry.gb(t.ramFree) + " free of " + Telemetry.gb(t.ramTotal) : "Memory not reported",
+                                  "Used right now: " + pct + "%",
+                                  "LPDDR4X, 4 or 6 GB by variant (spec)"};
+                      }
+                      case "storage": {
+                          long used = Math.max(0, t.stoTotal - t.stoFree);
+                          int pct = t.stoTotal > 0 ? Math.round(used * 100f / t.stoTotal) : 0;
+                          return new String[]{"Storage (eMMC 5.1)",
+                                  t.stoTotal > 0 ? Telemetry.gb(t.stoFree) + " free of " + Telemetry.gb(t.stoTotal) : "Storage not reported",
+                                  "Used: " + pct + "%",
+                                  "64 or 128 GB, microSD to 256 GB (spec)"};
+                      }
+                      case "battery": {
+                          String lvl = t.batPct < 0 ? "Level not reported" : t.batPct + "%" + (t.charging ? " and charging" : " on battery");
+                          String temp = Float.isNaN(t.batTempC) ? "Temperature not reported"
+                                  : String.format(Locale.US, "%.1f °C", t.batTempC)
+                                  + (Float.isNaN(t.batV) ? "" : String.format(Locale.US, ", %.2f V", t.batV));
+                          return new String[]{"Battery", lvl, temp, "BN56, 5000 mAh, 10 W charging (spec)"};
+                      }
+                      case "display":
+                          return new String[]{"Display",
+                                  t.dispW + " x " + t.dispH + " px at " + Math.round(t.hz) + " Hz",
+                                  t.dpi + " dpi",
+                                  "6.53 in IPS LCD, 400 nits (spec)"};
+                      case "cam13":
+                          return new String[]{"Cameras",
+                                  "Rear: 13 MP f/2.2 PDAF + 2 MP depth",
+                                  "Front: 5 MP f/2.2 in the notch",
+                                  "Video 1080p at 30 fps (spec)"};
+                      case "wcn":
+                          return new String[]{"Wi-Fi, Bluetooth, GPS, FM",
+                                  "Connection now: " + t.net,
+                                  "Wi-Fi 802.11 b/g/n, Bluetooth 5.0",
+                                  "GPS, GLONASS, BeiDou, FM radio (spec)"};
+                      case "accel":
+                          return new String[]{"Accelerometer",
+                                  t.accelOk ? String.format(Locale.US, "x %.1f  y %.1f  z %.1f m/s2", t.ax, t.ay, t.az) : "Reading not available",
+                                  "Moves this X-ray when you tilt the phone",
+                                  "No gyroscope is listed for this model"};
+                      case "spk":
+                          return new String[]{"Loudspeaker",
+                                  "Single speaker on the bottom edge",
+                                  "Lifts out together with the antennas",
+                                  "From the Redmi 9A teardown guide"};
+                      case "usb":
+                          return new String[]{"Micro-USB port",
+                                  "Micro-USB 2.0 with OTG",
+                                  "Charges at 10 W (5 V, 2 A charger)",
+                                  "Sits on the sub-board with the mic"};
+                      default:
+                          return new String[]{id, "", "", ""};
+                  }
+              }
+          }
+          XRAYEOF
+          mkdir -p "app/src/main/java/com/arpan/xraywallpaper"
+          cat > "app/src/main/java/com/arpan/xraywallpaper/Telemetry.java" <<'XRAYEOF'
+          package com.arpan.xraywallpaper;
+
+          import android.app.ActivityManager;
+          import android.content.Context;
+          import android.content.Intent;
+          import android.content.IntentFilter;
+          import android.net.ConnectivityManager;
+          import android.net.Network;
+          import android.net.NetworkCapabilities;
+          import android.os.BatteryManager;
+          import android.os.Build;
+          import android.os.Environment;
+          import android.os.StatFs;
+          import android.util.DisplayMetrics;
+          import android.view.Display;
+          import android.view.WindowManager;
+
+          import java.io.BufferedReader;
+          import java.io.FileReader;
+          import java.util.Locale;
+
+          /** Reads what this phone really reports. Anything Android blocks stays "not readable". */
+          final class Telemetry {
+              int cores = Math.max(1, Runtime.getRuntime().availableProcessors());
+
+              int batPct = -1;
+              float batTempC = Float.NaN;
+              float batV = Float.NaN;
+              boolean charging;
+
+              long ramTotal;
+              long ramFree;
+              long stoTotal;
+              long stoFree;
+
+              int[] freqKHz = new int[8];
+              int maxFreqKHz;
+              boolean freqOk;
+
+              float cpuTempC = Float.NaN;
+              String cpuTempSrc = "";
+              private String thermalPath;
+              private boolean thermalScanned;
+
+              String net = "offline";
+              int dispW;
+              int dispH;
+              int dpi;
+              float hz = 60f;
+
+              final String hardware = Build.HARDWARE == null ? "" : Build.HARDWARE;
+              final String model = Build.MODEL == null ? "" : Build.MODEL;
+              final String maker = Build.MANUFACTURER == null ? "" : Build.MANUFACTURER;
+
+              float ax;
+              float ay;
+              float az;
+              boolean accelOk;
+
+              void update(Context c) {
+                  try {
+                      Intent b = c.registerReceiver(null, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+                      if (b != null) {
+                          int lvl = b.getIntExtra(BatteryManager.EXTRA_LEVEL, -1);
+                          int sc = b.getIntExtra(BatteryManager.EXTRA_SCALE, 100);
+                          batPct = (lvl >= 0 && sc > 0) ? Math.round(lvl * 100f / sc) : -1;
+                          int t = b.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, Integer.MIN_VALUE);
+                          batTempC = (t == Integer.MIN_VALUE) ? Float.NaN : t / 10f;
+                          int v = b.getIntExtra(BatteryManager.EXTRA_VOLTAGE, 0);
+                          batV = v > 0 ? v / 1000f : Float.NaN;
+                          int st = b.getIntExtra(BatteryManager.EXTRA_STATUS, -1);
+                          charging = st == BatteryManager.BATTERY_STATUS_CHARGING || st == BatteryManager.BATTERY_STATUS_FULL;
+                      }
+                  } catch (Exception ignored) {
+                  }
+
+                  try {
+                      ActivityManager am = (ActivityManager) c.getSystemService(Context.ACTIVITY_SERVICE);
+                      ActivityManager.MemoryInfo mi = new ActivityManager.MemoryInfo();
+                      am.getMemoryInfo(mi);
+                      ramTotal = mi.totalMem;
+                      ramFree = mi.availMem;
+                  } catch (Exception ignored) {
+                  }
+
+                  try {
+                      StatFs s = new StatFs(Environment.getDataDirectory().getPath());
+                      stoTotal = s.getTotalBytes();
+                      stoFree = s.getAvailableBytes();
+                  } catch (Exception ignored) {
+                  }
+
+                  readCpu();
+
+                  try {
+                      ConnectivityManager cm = (ConnectivityManager) c.getSystemService(Context.CONNECTIVITY_SERVICE);
+                      net = "offline";
+                      Network n = cm.getActiveNetwork();
+                      if (n != null) {
+                          NetworkCapabilities nc = cm.getNetworkCapabilities(n);
+                          if (nc != null) {
+                              if (nc.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) {
+                                  net = "Wi-Fi";
+                              } else if (nc.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) {
+                                  net = "Mobile data";
+                              } else {
+                                  net = "Connected";
+                              }
+                          }
+                      }
+                  } catch (Exception ignored) {
+                  }
+
+                  try {
+                      WindowManager wm = (WindowManager) c.getSystemService(Context.WINDOW_SERVICE);
+                      Display d = wm.getDefaultDisplay();
+                      DisplayMetrics dm = new DisplayMetrics();
+                      d.getRealMetrics(dm);
+                      dispW = dm.widthPixels;
+                      dispH = dm.heightPixels;
+                      dpi = dm.densityDpi;
+                      hz = d.getRefreshRate();
+                  } catch (Exception ignored) {
+                  }
+              }
+
+              private void readCpu() {
+                  if (freqKHz.length != cores) {
+                      freqKHz = new int[cores];
+                  }
+                  boolean any = false;
+                  for (int i = 0; i < cores; i++) {
+                      int f = readInt("/sys/devices/system/cpu/cpu" + i + "/cpufreq/scaling_cur_freq");
+                      freqKHz[i] = Math.max(f, 0);
+                      if (f > 0) {
+                          any = true;
+                      }
+                  }
+                  freqOk = any;
+                  if (maxFreqKHz == 0) {
+                      for (int i = 0; i < cores; i++) {
+                          maxFreqKHz = Math.max(maxFreqKHz, readInt("/sys/devices/system/cpu/cpu" + i + "/cpufreq/cpuinfo_max_freq"));
+                      }
+                  }
+
+                  if (!thermalScanned) {
+                      thermalScanned = true;
+                      String fallback = null;
+                      String fallbackName = "";
+                      for (int z = 0; z < 40 && thermalPath == null; z++) {
+                          String base = "/sys/class/thermal/thermal_zone" + z;
+                          String type = readLine(base + "/type");
+                          int raw = readInt(base + "/temp");
+                          if (type == null || raw <= 0) {
+                              continue;
+                          }
+                          float tc = raw > 1000 ? raw / 1000f : raw;
+                          if (tc < 10f || tc > 110f) {
+                              continue;
+                          }
+                          String lower = type.toLowerCase(Locale.US);
+                          if (lower.contains("cpu") || lower.contains("soc") || lower.contains("cluster")) {
+                              thermalPath = base + "/temp";
+                              cpuTempSrc = type;
+                          } else if (fallback == null) {
+                              fallback = base + "/temp";
+                              fallbackName = type;
+                          }
+                      }
+                      if (thermalPath == null && fallback != null) {
+                          thermalPath = fallback;
+                          cpuTempSrc = fallbackName;
+                      }
+                  }
+                  if (thermalPath != null) {
+                      int raw = readInt(thermalPath);
+                      float tc = raw > 1000 ? raw / 1000f : raw;
+                      cpuTempC = (raw > 0 && tc >= 10f && tc <= 110f) ? tc : Float.NaN;
+                  }
+              }
+
+              float avgFreqRatio() {
+                  if (!freqOk || maxFreqKHz <= 0) {
+                      return -1f;
+                  }
+                  float sum = 0f;
+                  for (int i = 0; i < cores; i++) {
+                      sum += freqKHz[i] / (float) maxFreqKHz;
+                  }
+                  return Math.min(1f, sum / cores);
+              }
+
+              static String gb(long bytes) {
+                  return String.format(Locale.US, "%.1f GB", bytes / 1073741824.0);
+              }
+
+              /** One line per sensor group, for the setup screen. */
+              String diagnostics() {
+                  StringBuilder sb = new StringBuilder();
+                  sb.append("Phone: ").append(maker).append(' ').append(model).append('\n');
+                  sb.append("Chip code: ").append(hardware.isEmpty() ? "not reported" : hardware).append('\n');
+                  sb.append("CPU cores: ").append(cores).append('\n');
+                  sb.append("CPU speed: ").append(freqOk ? "readable" : "locked by Android").append('\n');
+                  sb.append("CPU temperature: ").append(Float.isNaN(cpuTempC) ? "locked by Android"
+                          : String.format(Locale.US, "%.1f C (%s)", cpuTempC, cpuTempSrc)).append('\n');
+                  sb.append("Battery temperature: ").append(Float.isNaN(batTempC) ? "not reported"
+                          : String.format(Locale.US, "%.1f C", batTempC)).append('\n');
+                  sb.append("Memory: ").append(ramTotal > 0 ? gb(ramFree) + " free of " + gb(ramTotal) : "not reported").append('\n');
+                  sb.append("Storage: ").append(stoTotal > 0 ? gb(stoFree) + " free of " + gb(stoTotal) : "not reported");
+                  return sb.toString();
+              }
+
+              private static String readLine(String path) {
+                  try (BufferedReader r = new BufferedReader(new FileReader(path))) {
+                      String s = r.readLine();
+                      return s == null ? null : s.trim();
+                  } catch (Exception e) {
+                      return null;
+                  }
+              }
+
+              private static int readInt(String path) {
+                  String s = readLine(path);
+                  if (s == null) {
+                      return -1;
+                  }
+                  try {
+                      return Integer.parseInt(s);
+                  } catch (Exception e) {
+                      return -1;
+                  }
+              }
+          }
+          XRAYEOF
+          mkdir -p "app/src/main/java/com/arpan/xraywallpaper"
+          cat > "app/src/main/java/com/arpan/xraywallpaper/XrayWallpaperService.java" <<'XRAYEOF'
+          package com.arpan.xraywallpaper;
+
+          import android.app.WallpaperManager;
+          import android.content.Context;
+          import android.hardware.Sensor;
+          import android.hardware.SensorEvent;
+          import android.hardware.SensorEventListener;
+          import android.hardware.SensorManager;
+          import android.os.Bundle;
+          import android.os.Handler;
+          import android.os.Looper;
+          import android.os.SystemClock;
+          import android.service.wallpaper.WallpaperService;
+          import android.view.MotionEvent;
+          import android.view.SurfaceHolder;
+
+          public class XrayWallpaperService extends WallpaperService {
+
+              @Override
+              public Engine onCreateEngine() {
+                  return new XrayEngine();
+              }
+
+              private class XrayEngine extends Engine implements SensorEventListener {
+                  private final Handler handler = new Handler(Looper.getMainLooper());
+                  private final Scene scene = new Scene();
+                  private final Telemetry tel = new Telemetry();
+                  private SensorManager sensors;
+                  private Sensor accel;
+                  private boolean visible;
+                  private long lastTelemetry;
+                  private float lastX;
+                  private float lastY;
+                  private float moved;
+                  private long downAt;
+
+                  private final Runnable drawer = new Runnable() {
+                      @Override
+                      public void run() {
+                          drawFrame();
+                      }
+                  };
+
+                  @Override
+                  public void onCreate(SurfaceHolder surfaceHolder) {
+                      super.onCreate(surfaceHolder);
+                      setTouchEventsEnabled(true);
+                      setOffsetNotificationsEnabled(true);
+                      sensors = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
+                      accel = sensors == null ? null : sensors.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
+                  }
+
+                  @Override
+                  public void onVisibilityChanged(boolean isVisible) {
+                      visible = isVisible;
+                      if (isVisible) {
+                          if (sensors != null && accel != null) {
+                              sensors.registerListener(this, accel, SensorManager.SENSOR_DELAY_UI);
+                          }
+                          handler.removeCallbacks(drawer);
+                          handler.post(drawer);
+                      } else {
+                          if (sensors != null) {
+                              sensors.unregisterListener(this);
+                          }
+                          handler.removeCallbacks(drawer);
+                      }
+                  }
+
+                  @Override
+                  public void onSurfaceChanged(SurfaceHolder holder, int format, int width, int height) {
+                      super.onSurfaceChanged(holder, format, width, height);
+                      if (visible) {
+                          handler.removeCallbacks(drawer);
+                          handler.post(drawer);
+                      }
+                  }
+
+                  @Override
+                  public void onSurfaceDestroyed(SurfaceHolder holder) {
+                      visible = false;
+                      handler.removeCallbacks(drawer);
+                      if (sensors != null) {
+                          sensors.unregisterListener(this);
+                      }
+                      super.onSurfaceDestroyed(holder);
+                  }
+
+                  @Override
+                  public void onDestroy() {
+                      visible = false;
+                      handler.removeCallbacks(drawer);
+                      if (sensors != null) {
+                          sensors.unregisterListener(this);
+                      }
+                      super.onDestroy();
+                  }
+
+                  @Override
+                  public void onOffsetsChanged(float xOffset, float yOffset, float xOffsetStep, float yOffsetStep,
+                                               int xPixelOffset, int yPixelOffset) {
+                      scene.setPage(xOffset);
+                  }
+
+                  @Override
+                  public void onTouchEvent(MotionEvent e) {
+                      switch (e.getActionMasked()) {
+                          case MotionEvent.ACTION_DOWN:
+                              lastX = e.getX();
+                              lastY = e.getY();
+                              moved = 0f;
+                              downAt = e.getEventTime();
+                              break;
+                          case MotionEvent.ACTION_MOVE: {
+                              float dx = e.getX() - lastX;
+                              float dy = e.getY() - lastY;
+                              scene.drag(dx, dy);
+                              moved += Math.abs(dx) + Math.abs(dy);
+                              lastX = e.getX();
+                              lastY = e.getY();
+                              break;
+                          }
+                          case MotionEvent.ACTION_UP:
+                              if (moved < 24f && e.getEventTime() - downAt < 350) {
+                                  scene.tap(e.getX(), e.getY());
+                              }
+                              break;
+                          default:
+                              break;
+                      }
+                  }
+
+                  @Override
+                  public Bundle onCommand(String action, int x, int y, int z, Bundle extras, boolean resultRequested) {
+                      if (WallpaperManager.COMMAND_TAP.equals(action)) {
+                          scene.tap(x, y);
+                      }
+                      return null;
+                  }
+
+                  @Override
+                  public void onSensorChanged(SensorEvent event) {
+                      float ax = event.values[0];
+                      float az = event.values[2];
+                      tel.ax = ax;
+                      tel.ay = event.values[1];
+                      tel.az = az;
+                      tel.accelOk = true;
+                      scene.tiltY = clamp(-ax / 9.81f, -1f, 1f) * 0.6f;
+                      scene.tiltX = -clamp((az - 3f) / 9.81f, -1f, 1f) * 0.5f;
+                  }
+
+                  @Override
+                  public void onAccuracyChanged(Sensor sensor, int accuracy) {
+                  }
+
+                  private float clamp(float v, float a, float b) {
+                      return Math.max(a, Math.min(b, v));
+                  }
+
+                  private void drawFrame() {
+                      SurfaceHolder holder = getSurfaceHolder();
+                      android.graphics.Canvas c = null;
+                      try {
+                          c = holder.lockCanvas();
+                          if (c != null) {
+                              long now = SystemClock.uptimeMillis();
+                              if (now - lastTelemetry > 2000) {
+                                  tel.update(XrayWallpaperService.this);
+                                  lastTelemetry = now;
+                              }
+                              scene.render(c, c.getWidth(), c.getHeight(), now, tel);
+                          }
+                      } catch (Exception ignored) {
+                      } finally {
+                          if (c != null) {
+                              try {
+                                  holder.unlockCanvasAndPost(c);
+                              } catch (Exception ignored) {
+                              }
+                          }
+                      }
+                      handler.removeCallbacks(drawer);
+                      if (visible) {
+                          handler.postDelayed(drawer, 40);
+                      }
+                  }
+              }
+          }
+          XRAYEOF
+          mkdir -p "app/src/main/res/values"
+          cat > "app/src/main/res/values/strings.xml" <<'XRAYEOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <string name="app_name">Redmi X-Ray</string>
+              <string name="description">A transparent X-ray of your phone with live readings from its real sensors.</string>
+          </resources>
+          XRAYEOF
+          mkdir -p "app/src/main/res/xml"
+          cat > "app/src/main/res/xml/wallpaper.xml" <<'XRAYEOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <wallpaper xmlns:android="http://schemas.android.com/apk/res/android"
+              android:description="@string/description" />
+          XRAYEOF
+          cat > "build.gradle" <<'XRAYEOF'
+          plugins {
+              id 'com.android.application' version '8.5.2' apply false
+          }
+          XRAYEOF
+          cat > "gradle.properties" <<'XRAYEOF'
+          org.gradle.jvmargs=-Xmx2g -Dfile.encoding=UTF-8
+          android.nonTransitiveRClass=true
+          XRAYEOF
+          cat > "settings.gradle" <<'XRAYEOF'
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          rootProject.name = "XrayWallpaper"
+          include ':app'
+          XRAYEOF
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+      - name: Build
+        run: gradle assembleDebug --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xray-wallpaper-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+      - name: Publish download link
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete latest --yes --cleanup-tag || true
+          gh release create latest app/build/outputs/apk/debug/app-debug.apk --title "Redmi X-Ray (latest build)" --notes "Install app-debug.apk on your phone."
